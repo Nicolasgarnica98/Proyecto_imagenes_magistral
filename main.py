@@ -7,7 +7,14 @@ import requests
 import numpy as np
 import skimage.io as io
 import matplotlib.pyplot as plt
+from skimage import exposure
 from skimage.transform import resize
+from skimage import feature
+from skimage import morphology
+from skimage import filters
+from skimage.filters import threshold_otsu
+
+#%%
 
 df_test_normal = glob.glob(os.path.join('chest_xray/train/NORMAL','*.jpeg'))
 df_test_pneumonia = glob.glob(os.path.join('chest_xray/train/PNEUMONIA','*.jpeg'))
@@ -51,16 +58,29 @@ def reescalado_img(image_data_array, size):
         image_data_array_reescaled[i] = resize(image_data_array[i], (size,size), anti_aliasing=True)
     return image_data_array_reescaled
 
-sizer = 1024
-img_train_normal = reescalado_img(img_train_normal,800)
-img_train_virus = reescalado_img(img_train_virus,800)
-img_train_bact = reescalado_img(img_train_bact,800)
+
+sizer = 700
+img_train_normal = reescalado_img(img_train_normal,sizer)
+img_train_virus = reescalado_img(img_train_virus,sizer)
+img_train_bact = reescalado_img(img_train_bact,sizer)
+
+
+# 2.   Ecualización de histogramas de las imágenes
+def ecualizacion_hist(image_data_array):
+    eq_image_array = image_data_array
+    for i in range(0,len(eq_image_array)):
+        eq_image_array[i] = exposure.equalize_hist(image_data_array[i])
+    return eq_image_array
+
+img_train_normal = ecualizacion_hist(img_train_normal)
+img_train_virus = ecualizacion_hist(img_train_virus)
+img_train_bact = ecualizacion_hist(img_train_bact)
 
 end_time = time.time()
 print('Tiempo: ', end_time-start_time,'s')
 
 
-#%%
+#%% PLOT DE EXPLORACIÓN INICIAL
 input('Press enter to continue...')
 fig0, ax0 = plt.subplots(4,2)
 
@@ -83,4 +103,40 @@ ax0[3][1].text(0.1,0.5,'Neumonia bacteriana',bbox={'facecolor': 'red'})
 ax0[3][1].axis('off')
 
 plt.show()
+# %% PROCESAMIENTO_TEST
+
+# 1.   Aplicación del detector de bordes de Canny.
+img_prueba_sano = img_train_normal[np.random.randint(0,len(img_train_normal))]
+img_prueba_pneu = img_train_bact[np.random.randint(0,len(img_train_bact))]
+img_prueba_pneu2 = img_train_virus[np.random.randint(0,len(img_train_virus))]
+
+ee = morphology.disk(1)
+canny_sano_prueba = filters.rank.gradient(img_prueba_sano,ee)
+canny_pneu_prueba = filters.rank.gradient(img_prueba_pneu,ee)
+canny_pneu2_prueba = filters.rank.gradient(img_prueba_pneu2,ee)
+print(canny_sano_prueba)
+
+# 2.  Aplicación de Top-Hat para rescatar detalles claros pequeños
+
+ee2 = np.ones((13,13))
+th_sano_prueba = morphology.white_tophat(canny_sano_prueba,ee2)
+th_pneu_prueba = morphology.white_tophat(canny_pneu_prueba,ee2)
+th_pneu2_prueba = morphology.white_tophat(canny_pneu2_prueba,ee2)
+
+otsu_sano_prueba = threshold_otsu(th_sano_prueba)
+otsu_pneu_prueba = threshold_otsu(th_pneu_prueba)
+otsu_pneu2_prueba = threshold_otsu(th_pneu2_prueba)
+
+img1 = th_sano_prueba > otsu_sano_prueba
+img2 = th_pneu_prueba > otsu_pneu_prueba
+img3 = th_pneu2_prueba > otsu_pneu2_prueba
+
+fig1, ax1 = plt.subplots(3,1)
+ax1[0].imshow(img1,'gray')
+ax1[1].imshow(img2,'gray')
+ax1[2].imshow(img3,'gray')
+plt.show()
+
+
+
 # %%

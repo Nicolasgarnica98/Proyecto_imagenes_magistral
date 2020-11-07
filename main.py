@@ -1,5 +1,6 @@
 
-#%%
+#%% LIBRERIAS
+
 import os
 import glob
 import time
@@ -13,8 +14,9 @@ from skimage import feature
 from skimage import morphology
 from skimage import filters
 from skimage.filters import threshold_otsu
+from sklearn.metrics import precision_recall_fscore_support
 
-#%%
+#%% ORGANIZACIÓN DE DATOS
 
 df_test_normal = glob.glob(os.path.join('chest_xray/train/NORMAL','*.jpeg'))
 df_test_pneumonia = glob.glob(os.path.join('chest_xray/train/PNEUMONIA','*.jpeg'))
@@ -49,7 +51,7 @@ img_train_virus = carga_imagenes(df_img_train_virus)
 img_train_bact = carga_imagenes(df_img_train_bact)
 
 
-#PRE-PROCESAMIENTO
+# PRE-PROCESAMIENTO
 
 # 1.   Reescalado de las imagenes -----> tamaño de imágenes: 600X600
 def reescalado_img(image_data_array, size):
@@ -80,7 +82,10 @@ end_time = time.time()
 print('Tiempo: ', end_time-start_time,'s')
 
 
+
 #%% PLOT DE EXPLORACIÓN INICIAL
+
+
 input('Press enter to continue...')
 fig0, ax0 = plt.subplots(4,2)
 
@@ -103,9 +108,13 @@ ax0[3][1].text(0.1,0.5,'Neumonia bacteriana',bbox={'facecolor': 'red'})
 ax0[3][1].axis('off')
 
 plt.show()
+
+
+
+
 # %% PROCESAMIENTO_TEST
 
-# 1.   Aplicación del detector de bordes de Canny.
+# 1.   Obtención del gradiente morfologico de la imagen.
 img_prueba_sano = img_train_normal[np.random.randint(0,len(img_train_normal))]
 img_prueba_pneu = img_train_bact[np.random.randint(0,len(img_train_bact))]
 img_prueba_pneu2 = img_train_virus[np.random.randint(0,len(img_train_virus))]
@@ -139,4 +148,78 @@ plt.show()
 
 
 
-# %%
+#%% PROCESAMIENTO
+
+def procesamiento(image_data_array,EE_grad, EE_th):
+    imag_proc = image_data_array
+    Otsu_temp = 0
+
+    # 1.   Obtención del gradiente morfologico de la imagen.
+    for i in range(0,len(image_data_array)):
+        imag_proc[i] = filters.rank.gradient(image_data_array[i],EE_grad)
+
+    # 2.  Aplicación de Top-Hat para rescatar detalles claros pequeños
+        imag_proc[i] = morphology.white_tophat(imag_proc[i],EE_th)
+
+    # 3.  Umbralización de OTSU
+        Otsu_temp = threshold_otsu(imag_proc[i])
+        imag_proc[i] = imag_proc[i] > Otsu_temp
+    
+    return imag_proc
+
+ee_grad = morphology.disk(1)
+ee_th = ee2 = np.ones((15,15))
+procesamiento_train_normal = procesamiento(img_train_normal,ee_grad,ee_th)
+procesamiento_train_pneu = procesamiento(img_train_bact,ee_grad,ee_th)
+procesamiento_train_pneu2 = procesamiento(img_train_virus,ee_grad,ee_th)
+
+
+
+#%% CLASIFICACIÓN
+
+temp = 0
+prom_general = 0
+for i in range(0,len(procesamiento_train_normal)):
+    prom_general = np.mean(procesamiento_train_normal[i]) + temp
+    temp = prom_general
+
+prom_general = prom_general/len(procesamiento_train_normal)
+
+def clasificacion(image_data_array, umbral, sens):
+    lab_pred = []
+    for i in range(0,len(image_data_array)):
+        if np.mean(image_data_array[i]) < umbral-sens:
+            lab_pred.append(False)
+        else:
+            lab_pred.append(True)
+    return lab_pred
+
+
+Umbral = prom_general
+sensibilidad = 0.05
+normal_pred = clasificacion(procesamiento_train_normal,Umbral,sensibilidad)
+pneu_pred = clasificacion(procesamiento_train_pneu,Umbral,sensibilidad)
+pneu2_pred = clasificacion(procesamiento_train_pneu2,Umbral,sensibilidad)
+
+y_pred = np.concatenate((normal_pred,pneu_pred,pneu2_pred))
+
+
+
+
+#%% MTERICAS
+
+y_true = []
+
+for i in range(0,len(img_train_normal)):
+    y_true.append(True)
+for i in range(0,len(img_train_bact)+len(img_train_virus)):
+    y_true.append(False)
+
+metricas = precision_recall_fscore_support(y_true,y_pred)
+print(metricas)
+
+
+
+
+    
+
